@@ -22,6 +22,7 @@
 
 // hardware
 #include "hardware/clocks.h"
+#include "hardware/i2c.h"
 
 // tiny usb and midi
 #include "tusb.h"
@@ -42,6 +43,32 @@
 #define SINE_WAVE_TABLE_LEN 2048
 #define SAMPLES_PER_BUFFER 128
 
+// figure out number of iic-connected status leds from cmake command line
+#if defined STATUS_LED_SINGLE
+  #define HAS_STATUS_LEDS
+  #define NUM_STATUS_LEDS 1
+#elif defined STATUS_LED_TRIPLE
+  #define HAS_STATUS_LEDS
+  #define NUM_STATUS_LEDS 3
+#endif
+
+// figure out what iic pins the status leds are connected to
+#ifdef HAS_STATUS_LEDS
+  #ifdef ADAFRUIT_QTPY_RP2040
+    #define C_I2C_NUMBER  1
+    #define C_I2C_SDA_PIN 22
+    #define C_I2C_SCL_PIN 23
+  #else
+    #define C_I2C_NUMBER  0
+    #define C_I2C_SDA_PIN 16
+    #define C_I2C_SCL_PIN 17
+  #endif
+
+  // TCA9536 address depends on part suffix, this is for the no suffix version
+  // these are bits [7:1] of the byte, bit [0] is R/W bit.
+  #define TCA9536_I2C_ADDRESS 0x41
+#endif
+
 
 //---------------------------------------------------------------------------------------------
 // typedefs
@@ -54,6 +81,10 @@ typedef uint8_t midi_button_t;
 // prototypes -- core 0
 //
 
+#ifdef HAS_STATUS_LEDS
+void init_status_leds (void);
+void update_status_leds (bool midi_device_connected, bool sdcard_mounted, bool file_opened);
+#endif
 bool repeating_timer_callback_200Hz (struct repeating_timer *t);
 struct audio_buffer_pool *init_audio (void);
 
@@ -77,6 +108,15 @@ bi_decl(bi_ptr_int32(0x1112, 0, UART_TX_PIN, PICO_DEFAULT_UART_TX_PIN));
 bi_decl(bi_ptr_int32(0x1112, 0, UART_RX_PIN, PICO_DEFAULT_UART_RX_PIN));
 bi_decl(bi_ptr_int32(0x1112, 0, UART_BAUD,   115200));
 
+// Status LED Configuration
+#ifdef HAS_STATUS_LEDS
+bi_decl(bi_program_feature_group(0x1114, 0, "IIC Status Led Configuration"));
+bi_decl(bi_ptr_int32(0x1114, 0, I2C_NUMBER,    C_I2C_NUMBER));
+bi_decl(bi_ptr_int32(0x1114, 0, I2C_SDA_PIN,   C_I2C_SDA_PIN));
+bi_decl(bi_ptr_int32(0x1114, 0, I2C_SCL_PIN,   C_I2C_SCL_PIN));
+bi_decl(bi_ptr_int32(0x1114, 0, I2C_LED_COUNT, NUM_STATUS_LEDS));
+#endif
+
 // 200 Hz flag from periodic timer interrupt to main loop
 volatile bool flag200 = false;
 
@@ -95,8 +135,8 @@ int main (void)
 {
   // local system variables
   struct repeating_timer timer_200Hz;
-  uint8_t ledTimer = 0;
-  // bool midi_connected = false;
+  uint8_t led_timer = 0;
+  bool midi_connected = false;
   bool sdcard_mounted = false;
   bool file_opened = false;
   FATFS fs;
@@ -127,6 +167,10 @@ int main (void)
   // initialize button queue
   queue_init (&button_fifo, sizeof (midi_button_t), BUTTON_FIFO_DEPTH);
 
+#ifdef HAS_STATUS_LEDS
+  init_status_leds ();
+#endif 
+
   // set up 5 ms / 200 Hz repeating timer
   add_repeating_timer_ms (-5, repeating_timer_callback_200Hz, NULL, &timer_200Hz);
 
@@ -143,7 +187,7 @@ int main (void)
     //----------------------------------------
 
     tuh_task ();
-    // midi_connected = dev_idx != TUSB_INDEX_INVALID_8 && tuh_midi_mounted(dev_idx);
+    midi_connected = dev_idx != TUSB_INDEX_INVALID_8 && tuh_midi_mounted(dev_idx);
 
 
     //----------------------------------------
@@ -205,12 +249,6 @@ int main (void)
 
     midi_button_t button;
     if (queue_try_remove (&button_fifo, &button)) {
-
-      // if (audio_playing) { // TODO
-      //   stop_audio ();
-      //   audio_playing = false;
-      // }
-
       do {
 
         // check if sdcard is mounted
@@ -241,8 +279,6 @@ int main (void)
 
         printf ("opened file %s\n", filename);
 
-        // TODO -- queue up file to audio data
-
       } while (0);
     }
 
@@ -256,19 +292,23 @@ int main (void)
 
 #ifdef PICO_DEFAULT_LED_PIN
       // blihk led
-      if (ledTimer == 0) {
+      if (led_timer == 0) {
         // led on
         gpio_put (LED_PIN, 1);
-      } else if (ledTimer == 25) {
+      } else if (led_timer == 25) {
         // led off
         gpio_put (LED_PIN, 0);
       }
 #endif
 
       // increment led timer counter, 1.0 second period
-      if (++ledTimer >= 200) {
-        ledTimer = 0;
+      if (++led_timer >= 200) {
+        led_timer = 0;
       }
+
+#ifdef HAS_STATUS_LEDS
+      update_status_leds (midi_connected, sdcard_mounted, file_opened);
+#endif 
     }
   }
 }
@@ -398,3 +438,65 @@ struct audio_buffer_pool *init_audio (void) {
 
     return producer_pool;
 }
+
+
+//---------------------------------------------------------------------------------------------
+// iic-connected status leds
+//
+
+#ifdef HAS_STATUS_LEDS
+
+void init_status_leds (void)
+{
+  uint8_t data[2];
+
+  // configure rp2040 i2c hardware
+  i2c_init (I2C_INSTANCE(I2C_NUMBER), 100 * 1000);
+  gpio_set_function(I2C_SDA_PIN, GPIO_FUNC_I2C);
+  gpio_set_function(I2C_SCL_PIN, GPIO_FUNC_I2C);
+  gpio_pull_up(I2C_SDA_PIN);
+  gpio_pull_up(I2C_SCL_PIN);
+
+  // set all four tca9536 pins to outputs by writing config reg 0x03 to 0x00
+  data[0] = 0x03;
+  data[1] = 0x00;
+  i2c_write_blocking (I2C_INSTANCE(I2C_NUMBER), TCA9536_I2C_ADDRESS, data, 2, false);
+
+  // set all four tca9536 outputs high by writing output port reg 0x01 to 0x0F (all leds off)
+  data[0] = 0x01;
+  data[1] = 0x0F;
+  i2c_write_blocking (I2C_INSTANCE(I2C_NUMBER), TCA9536_I2C_ADDRESS, data, 2, false);
+}
+
+
+void update_status_leds (bool midi_device_connected, bool sdcard_mounted, bool file_opened)
+{
+  uint8_t state;
+  uint8_t data[2];
+
+  // consolidate individual inputs into a state variable
+  state = (midi_device_connected ? 4 : 0) |
+          (sdcard_mounted        ? 2 : 0) |
+          (file_opened           ? 1 : 0);
+
+#ifdef STATUS_LED_TRIPLE
+
+  // three status leds, map inputs one-to-one to leds
+  // left: midi connected, middle: sd card mounted, right: file playing
+  data[0] = 0x01;
+  data[1] = 8 | (7 & ~state);
+  i2c_write_blocking (I2C_INSTANCE(I2C_NUMBER), TCA9536_I2C_ADDRESS, data, 2, false);
+
+#endif
+
+#ifdef STATUS_LED_SINGLE
+
+  // single status led, on if midi_device_connected and sdcard_mounted
+  data[0] = 0x01;
+  data[1] = 0xe | (((state & 6) == 6) ? 0 : 1);
+  i2c_write_blocking (I2C_INSTANCE(I2C_NUMBER), TCA9536_I2C_ADDRESS, data, 2, false);
+
+#endif
+}
+
+#endif

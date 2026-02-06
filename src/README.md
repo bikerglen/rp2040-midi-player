@@ -15,12 +15,17 @@ To download the .elf version to the PICO using a SWD debug probe:
 
 openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg -c "adapter speed 5000" -c "program soundboard.elf verify reset exit"
 
-Buidling a .uf2 version for the Adafruit QT PY RP2040:
+Building a .uf2 version for the Adafruit QT PY RP2040:
 
 mkdir build_qtpybff</br>
 cd build_qtpybff</br>
 cmake .. -DPICO_BOARD=adafruit_qtpy_rp2040</br>
 make</br>
+
+An I2C-based status indicator can be added to either build by appending one of the following to the above cmake commands:
+
+-DSTATUS_LED_CONFIG=single</br>
+-DSTATUS_LED_CONFIG=triple</br>
 
 To download the .uf2 version:
 

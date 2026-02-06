@@ -10,18 +10,23 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 add_subdirectory(../../pico-sdk/lib/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico/src build-fat)
-#add_subdirectory(../../pico-extras/src/rp2_common/pico_audio_i2s build-i2s)
-#add_subdirectory(../../pico-extras/src/common/pico_audio build-audio)
 
 add_executable(soundboard)
 
 #add_compile_definitions(USE_PRINTF)
+
+if (STATUS_LED_CONFIG STREQUAL "single")
+  target_compile_definitions(soundboard PRIVATE STATUS_LED_SINGLE)
+elseif (STATUS_LED_CONFIG STREQUAL "triple")
+  target_compile_definitions(soundboard PRIVATE STATUS_LED_TRIPLE)
+endif()
 
 target_compile_definitions(soundboard PRIVATE 
   PICO_AUDIO_I2S_MONO_INPUT=0
   PICO_AUDIO_I2S_MONO_OUTPUT=0
 	USE_AUDIO_I2S=1
 )
+
 target_sources(soundboard PRIVATE main.c hw_config.c)
 target_include_directories(soundboard PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 target_link_options(soundboard PRIVATE -Xlinker --print-memory-usage)
@@ -32,6 +37,7 @@ target_link_libraries(soundboard
 	tinyusb_board 
 	no-OS-FatFS-SD-SDIO-SPI-RPi-Pico
   pico_audio_i2s
+  hardware_i2c
 )
 
 pico_set_program_name(soundboard "MIDI Soundboard")

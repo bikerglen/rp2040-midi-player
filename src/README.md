@@ -1,15 +1,15 @@
 Environment installation:
 
-Install the RP2040 PICO C SDK development environment.
-git clone the github.com/carlk3/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico repository somewhere convenient. 
-edit CMakeLists.txt to point to the cloned directory. 
+Install the RP2040 PICO C SDK development environment.</br>
+Clone the github.com/carlk3/no-OS-FatFS-SD-SDIO-SPI-RPi-Pico repository somewhere convenient. </br>
+Edit CMakeLists.txt to point to the cloned directory. </br>
 
 Building a .elf version for the original RP2040 PICO board with a SWD debug probe:
 
-mkdir build_pico
-cd build_pico
-cmake ..
-make
+mkdir build_pico</br>
+cd build_pico</br>
+cmake ..</br>
+make</br>
 
 To download the .elf version to the PICO using a SWD debug probe:
 
@@ -17,10 +17,10 @@ openocd -f interface/cmsis-dap.cfg -f target/rp2040.cfg -c "adapter speed 5000" 
 
 Buidling a .uf2 version for the Adafruit QT PY RP2040:
 
-mkdir build_qtpybff
-cd build_qtpybff
-cmake .. -DPICO_BOARD=adafruit_qtpy_rp2040
-make
+mkdir build_qtpybff</br>
+cd build_qtpybff</br>
+cmake .. -DPICO_BOARD=adafruit_qtpy_rp2040</br>
+make</br>
 
 To download the .uf2 version:
 

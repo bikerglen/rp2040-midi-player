@@ -105,7 +105,6 @@ int main (void)
 
     // right led on
     data[0] = 0x01;
-    data[0] = 0x01;
     data[1] = 0x0e;
     i2c_write_blocking (I2C_INSTANCE(I2C_NUMBER), TCA9536_I2C_ADDRESS, data, 2, false);
     sleep_ms (1000);

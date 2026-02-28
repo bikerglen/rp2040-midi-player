@@ -383,6 +383,25 @@ void tuh_midi_rx_cb(uint8_t idx, uint32_t num_bytes)
               printf ("dropped button %d\n", button);
             }
           }
+        } else if ((buffer[0] == 0x99) && (buffer[2] == 0x7f)) {
+          midi_button_t button;
+          switch (buffer[1]) {
+            case 0x31: button = 16; break; // left ear
+            case 0x39: button = 17; break; // right ear
+            case 0x2a: button = 18; break; // left whiskers
+            case 0x32: button = 19; break; // left eye
+            case 0x30: button = 20; break; // right eye
+            case 0x33: button = 21; break; // right whiskers
+            case 0x26: button = 22; break; // left paw
+            case 0x24: button = 23; break; // nose boop
+            case 0x29: button = 24; break; // right paw
+            default: button = 0xFF; break;
+          }
+          if (button != 0xFF) {
+            if (!queue_try_add (&button_fifo, &button)) {
+              printf ("dropped button %d\n", button);
+            }
+          }
         }
       }
     }
